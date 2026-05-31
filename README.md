@@ -12,6 +12,9 @@ CSV/JSONの読み込みなども、想定外のデータを入れたときの案
 今後、UI、入力チェック、説明文、サンプルデータなどは少しずつ整えていく予定です。
 
 
+
+
+
 # PedigreeCalc
 
 **[▶ デモを試す](https://play03016202.github.io/pedigree-calc/)**
