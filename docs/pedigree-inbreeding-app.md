@@ -5,7 +5,7 @@ project: "pedigree-inbreeding-app"
 tags: [html, javascript, d3, 家系図, 近交係数, 育種]
 ---
 
-# 近親交配対応家系図アプリケーション — 開発フロー提案
+# 近親交配対応家系図アプリケーション — 開発フロー
 
 ## 概要
 
