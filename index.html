@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PedigreeCalc — 近親交配対応家系図</title>
+  <link rel="stylesheet" href="style/main.css">
+</head>
+<body>
+
+<!-- ════════════════════════ HEADER ════════════════════════ -->
+<header class="header">
+  <div class="header-logo">🐾 PedigreeCalc</div>
+
+  <button class="btn btn-primary" id="btn-add" title="個体を追加">+ 個体追加</button>
+  <button class="btn" id="btn-sample" title="サンプルデータを読み込む">サンプル</button>
+
+  <div style="width:1px;height:24px;background:#30363d;margin:0 4px"></div>
+
+  <button class="btn" id="btn-csv-import" title="CSVファイルを読み込む">CSV 読込</button>
+  <button class="btn" id="btn-csv-export" title="CSVファイルとしてエクスポート">CSV 保存</button>
+  <button class="btn" id="btn-json-save" title="JSONファイルとして保存">JSON 保存</button>
+  <button class="btn" id="btn-json-load" title="JSONファイルを読み込む">JSON 読込</button>
+
+  <div class="header-sep"></div>
+
+  <button class="btn" id="btn-reset-zoom" title="表示をリセット">⊡ フィット</button>
+  <button class="btn btn-danger" id="btn-clear" title="全データをクリア">クリア</button>
+</header>
+
+<!-- ════════════════════════ MAIN ════════════════════════ -->
+<div class="main">
+
+  <!-- ── Side Panel ── -->
+  <aside class="panel">
+
+    <!-- Individual List -->
+    <div class="panel-section">
+      <div class="panel-title">個体一覧</div>
+      <div class="ind-list" id="ind-list">
+        <div class="detail-empty">読み込み中...</div>
+      </div>
+    </div>
+
+    <!-- Selected Individual Detail -->
+    <div class="panel-section">
+      <div class="panel-title">選択中の個体</div>
+      <div id="ind-detail">
+        <div class="detail-empty">個体を選択してください</div>
+      </div>
+      <div class="ind-actions" id="ind-actions" style="display:none">
+        <button class="btn btn-sm" id="btn-edit-ind">編集</button>
+        <button class="btn btn-sm" id="btn-show-path">近交パス</button>
+        <button class="btn btn-sm btn-danger" id="btn-delete-ind">削除</button>
+      </div>
+    </div>
+
+    <!-- Mating Simulator -->
+    <div class="panel-section">
+      <div class="panel-title">交配シミュレーター</div>
+      <select class="mate-select" id="mate-sire">
+        <option value="">– 父を選択 –</option>
+      </select>
+      <select class="mate-select" id="mate-dam">
+        <option value="">– 母を選択 –</option>
+      </select>
+      <div class="mate-result" id="mate-result">
+        <div class="mate-result-label">父と母を選択してください</div>
+      </div>
+    </div>
+
+    <!-- Population Statistics -->
+    <div class="panel-section">
+      <div class="panel-title">集団統計</div>
+      <div id="stats-content">
+        <div class="detail-empty">データがありません</div>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="panel-section">
+      <div class="panel-title">F 値の凡例</div>
+      <div style="font-size:11px;line-height:1.8">
+        <div><span class="f-badge fb-none">0%</span> 近交なし</div>
+        <div><span class="f-badge fb-low">&lt;6.25%</span> 許容範囲</div>
+        <div><span class="f-badge fb-mid">&lt;12.5%</span> 要注意（いとこ交配）</div>
+        <div><span class="f-badge fb-high">&lt;25%</span> 高リスク（半兄妹）</div>
+        <div><span class="f-badge fb-danger">≥25%</span> 非常に高リスク</div>
+      </div>
+      <div style="margin-top:10px;font-size:11px;color:#8b949e;line-height:1.6">
+        <div>● ノードをクリック → 祖先・子孫をハイライト</div>
+        <div>● 「近交パス」ボタン → 近交経路を可視化</div>
+        <div>● 橙点線エッジ → 近交が生じているエッジ</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- ── Canvas ── -->
+  <div class="canvas-wrap">
+    <svg id="pedigree-svg"></svg>
+    <div class="canvas-hint">スクロール: ズーム ／ ドラッグ: パン ／ ノードクリック: 詳細</div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════ FOOTER ════════════════════════ -->
+<footer class="footer">
+  <span class="footer-label">世代フィルター:</span>
+  <input type="range" class="gen-slider" id="gen-slider" min="0" max="10" value="10">
+  <span id="gen-value" style="font-size:12px;color:#8b949e;width:50px">全世代</span>
+
+  <span class="footer-label" style="margin-left:16px">検索:</span>
+  <input type="text" class="search-input" id="search-input" placeholder="個体名を入力...">
+
+  <span class="status-bar" id="status-bar">0 個体</span>
+</footer>
+
+<!-- ════════════════════════ MODAL ════════════════════════ -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="modal-title-text">個体を追加</span>
+      <button class="modal-close" onclick="App.Panel.closeModal()">×</button>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">名前 <span style="color:#ff7b72">*</span></label>
+      <input type="text" class="form-input" id="form-name" placeholder="例: Alpha" autocomplete="off">
+    </div>
+
+    <div class="form-row-2">
+      <div class="form-row" style="margin:0">
+        <label class="form-label">性別 <span style="color:#ff7b72">*</span></label>
+        <select class="form-select" id="form-sex">
+          <option value="M">オス (M)</option>
+          <option value="F">メス (F)</option>
+          <option value="U" selected>不明 (U)</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin:0">
+        <label class="form-label">生年</label>
+        <input type="number" class="form-input" id="form-year" placeholder="例: 2020" min="1900" max="2100">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">父 (Sire)</label>
+      <select class="form-select" id="form-sire">
+        <option value="">– なし –</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">母 (Dam)</label>
+      <select class="form-select" id="form-dam">
+        <option value="">– なし –</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">品種</label>
+      <input type="text" class="form-input" id="form-breed" placeholder="例: Labrador">
+    </div>
+
+    <div class="form-row">
+      <label class="form-label">メモ</label>
+      <textarea class="form-textarea" id="form-notes" rows="2" placeholder="備考・メモ"></textarea>
+    </div>
+
+    <div class="form-error" id="form-error"></div>
+
+    <div class="form-actions">
+      <button class="btn" id="btn-modal-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-modal-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════ TOOLTIP ════════════════════════ -->
+<div class="tooltip" id="tooltip"></div>
+
+<!-- ════════════════════════ SCRIPTS ════════════════════════ -->
+<!-- D3.js v7 from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+
+<!-- App modules (load order matters) -->
+<script src="src/store.js"></script>
+<script src="src/engine/nrm.js"></script>
+<script src="src/engine/layout.js"></script>
+<script src="src/engine/path.js"></script>
+<script src="src/ui/tooltip.js"></script>
+<script src="src/ui/stats.js"></script>
+<script src="src/ui/panel.js"></script>
+<script src="src/io.js"></script>
+<script src="src/ui/renderer.js"></script>
+<script src="src/app.js"></script>
+
+</body>
+</html>

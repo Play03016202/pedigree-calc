@@ -1,0 +1,14 @@
+id,name,sex,birthYear,sireId,damId,breed,notes
+f1,Alpha,M,2015,,,Labrador,創始者
+f2,Beta,F,2015,,,Labrador,創始者
+f3,Gamma,M,2016,,,Labrador,創始者
+f4,Delta,F,2016,,,Labrador,創始者
+g1,Echo,M,2018,f1,f2,Labrador,
+g2,Foxtrot,F,2018,f3,f4,Labrador,
+g3,Golf,M,2018,f1,f2,Labrador,Echoの同腹兄弟
+g4,Hotel,F,2019,f1,f4,Labrador,
+p1,India,M,2020,g1,g2,Labrador,
+p2,Juliet,F,2020,g3,g2,Labrador,
+c1,Kilo,M,2021,p1,p2,Labrador,F≈18.75%（高リスク）
+c2,Lima,F,2021,g1,g4,Labrador,F≈12.5%（要注意）
+gc1,Mike,U,2022,c1,c2,Labrador,F≈15.6%
