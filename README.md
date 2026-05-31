@@ -3,8 +3,6 @@
 
 **[▶ デモを試す](https://play03016202.github.io/pedigree-calc/)**
 
-# PedigreeCalc
-
 家畜・ペット・育種などの家系図を視覚化し、近交係数（F値）を計算するブラウザツールです。
 
 ## 機能
