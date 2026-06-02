@@ -31,6 +31,9 @@ CSV/JSONの読み込みなども、想定外のデータを入れたときの案
 ## 使い方
 [デモページ](https://play03016202.github.io/pedigree-calc/) をブラウザで開くだけで動作します。インストール不要。
 
+## テスト
+[計算検証テストを実行](https://play03016202.github.io/pedigree-calc/test/test.html)
+
 ## アルゴリズム参考文献
  - Boyce (1983) — 表形式法の標準実装（NRM）
  - Ballweg et al. (2017) — DAG 知覚研究（階層明確化が最優先）
