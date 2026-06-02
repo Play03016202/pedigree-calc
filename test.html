@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PedigreeCalc — 計算検証テスト</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      color: #e6edf3;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtitle {
+      color: #8b949e;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+
+    /* サマリーバー */
+    #summary {
+      display: flex;
+      gap: 1.5rem;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+    #summary .stat { display: flex; align-items: center; gap: 0.4rem; }
+    #summary .pass { color: #3fb950; font-weight: 700; }
+    #summary .fail { color: #f85149; font-weight: 700; }
+    #summary .total { color: #8b949e; }
+
+    /* テストスイートグループ */
+    .suite {
+      margin-bottom: 2rem;
+    }
+    .suite-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #79c0ff;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.4rem;
+      border-bottom: 1px solid #21262d;
+    }
+
+    /* 個別テスト行 */
+    .test-row {
+      display: grid;
+      grid-template-columns: 1.5rem 1fr auto auto;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      margin-bottom: 0.25rem;
+      font-size: 0.875rem;
+      transition: background 0.1s;
+    }
+    .test-row:hover { background: #161b22; }
+    .test-row.pass .icon { color: #3fb950; }
+    .test-row.fail { background: #1c1010; }
+    .test-row.fail .icon { color: #f85149; }
+    .test-row.fail .name { color: #f85149; }
+
+    .icon { font-size: 1rem; text-align: center; }
+    .name { color: #c9d1d9; }
+    .expected { color: #8b949e; font-family: monospace; font-size: 0.8rem; }
+    .actual   { font-family: monospace; font-size: 0.8rem; }
+    .test-row.pass .actual { color: #3fb950; }
+    .test-row.fail .actual { color: #f85149; }
+
+    /* 家系図説明 */
+    .pedigree-note {
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #8b949e;
+      background: #161b22;
+      border-left: 3px solid #30363d;
+      padding: 0.4rem 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* エラー表示 */
+    #load-error {
+      display: none;
+      background: #1c1010;
+      border: 1px solid #f85149;
+      border-radius: 8px;
+      padding: 1rem 1.5rem;
+      color: #f85149;
+      margin-bottom: 2rem;
+    }
+
+    footer {
+      margin-top: 3rem;
+      color: #484f58;
+      font-size: 0.8rem;
+      border-top: 1px solid #21262d;
+      padding-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PedigreeCalc — 計算検証テスト</h1>
+<p class="subtitle">
+  近交係数 F 値・NRM・ECG・交配シミュレーションの正確性を既知の理論値と照合します
+</p>
+
+<div id="load-error">
+  ⚠ nrm.js の読み込みに失敗しました。このファイルはサーバー経由でアクセスしてください。<br>
+  GitHub Pages: <a href="https://play03016202.github.io/pedigree-calc/test/test.html" style="color:#58a6ff;">
+    https://play03016202.github.io/pedigree-calc/test/test.html
+  </a>
+</div>
+
+<div id="summary">
+  <div class="stat"><span class="pass" id="pass-count">-</span> <span class="total">passed</span></div>
+  <div class="stat"><span class="fail" id="fail-count">-</span> <span class="total">failed</span></div>
+  <div class="stat"><span class="total" id="total-count">-</span> <span class="total">total</span></div>
+</div>
+
+<div id="results"></div>
+
+<footer>
+  アルゴリズム根拠: Henderson (1976) Tabular Method / Boyce (1983) / Wright (1922) Path Coefficient Method<br>
+  テスト値はすべて手計算による理論値と照合済み
+</footer>
+
+<!-- ================================================================
+  Step 1: App.Store のモック実装（本番コードが依存する最小インターフェース）
+================================================================ -->
+<script>
+window.App = {};
+
+(function () {
+  let _map = new Map();
+
+  /* DFS トポロジカルソート（親が子より前に来る順序を保証） */
+  function topologicalSort() {
+    const result  = [];
+    const visited = new Set();
+    const temp    = new Set(); // 循環参照ガード
+
+    function visit(id) {
+      if (temp.has(id) || visited.has(id)) return;
+      temp.add(id);
+      const ind = _map.get(id);
+      if (ind) {
+        if (ind.sireId && _map.has(ind.sireId)) visit(ind.sireId);
+        if (ind.damId  && _map.has(ind.damId))  visit(ind.damId);
+      }
+      temp.delete(id);
+      visited.add(id);
+      if (ind) result.push(ind);
+    }
+
+    for (const id of _map.keys()) visit(id);
+    return result;
+  }
+
+  App.Store = {
+    /** テスト用: 個体リストをストアに投入 */
+    load(individuals) {
+      _map = new Map(individuals.map(i => [i.id, { ...i }]));
+      if (App.NRM) App.NRM.invalidate();
+    },
+    get(id)   { return _map.get(id) || null; },
+    getAll()  { return [..._map.values()]; },
+    topologicalSort,
+  };
+})();
+</script>
+
+<!-- Step 2: 本番コードを読み込む（このファイルは test/ に置くので ../src/ を参照） -->
+<script src="../src/engine/nrm.js"></script>
+
+<!-- ================================================================
+  Step 3: テストランナー + テストスイート
+================================================================ -->
+<script>
+(function () {
+
+  /* ──────────────────────────────────────────────
+   * テストランナー
+   * ────────────────────────────────────────────── */
+  const suites  = [];   // { title, note, tests[] }
+  let curSuite  = null;
+
+  function suite(title, note) {
+    curSuite = { title, note: note || '', tests: [] };
+    suites.push(curSuite);
+  }
+
+  /**
+   * @param {string} name     テスト名
+   * @param {*}      expected 期待値（数値 or boolean）
+   * @param {*}      actual   実測値
+   * @param {number} [tol]    数値比較の許容誤差（デフォルト 1e-10）
+   */
+  function test(name, expected, actual, tol = 1e-10) {
+    let pass;
+    if (typeof expected === 'boolean') {
+      pass = (actual === expected);
+    } else {
+      pass = Number.isFinite(actual) && Math.abs(actual - expected) <= tol;
+    }
+    curSuite.tests.push({ name, expected, actual, pass });
+  }
+
+  /* ──────────────────────────────────────────────
+   * テストヘルパー
+   * ────────────────────────────────────────────── */
+
+  /** 個体オブジェクトを生成 */
+  function ind(id, sireId, damId) {
+    return { id, sireId: sireId || null, damId: damId || null,
+             F: 0, ECG: 0, generationDepth: 0 };
+  }
+
+  /** ストアを差し替えて NRM を再構築し、対象個体の F 値を返す */
+  function getF(individuals, targetId) {
+    App.Store.load(individuals);
+    App.NRM.ensureBuilt();
+    return App.NRM.getF(targetId);
+  }
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 1: 基本 F 値
+   * ══════════════════════════════════════════════ */
+
+  suite('F 値計算（基本）',
+    '既知の家系構造に対し、Henderson (1976) Tabular Method が正しい近交係数を返すか検証します。');
+
+  // --- 1. 創始者（親なし） F = 0 ---
+  test('創始者（親なし）の F = 0',
+    0,
+    getF([ind('A', null, null)], 'A')
+  );
+
+  // --- 2. 全兄妹交配 F = 0.25 ---
+  // GS × GD → S, D  →  S × D → O
+  // F(O) = 0.5 × NRM[S][D] = 0.5 × 0.5 = 0.25
+  test('全兄妹交配 F = 0.25',
+    0.25,
+    getF([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+    ], 'O')
+  );
+
+  // --- 3. 半兄妹交配 F = 0.125 ---
+  // CP × A → HS1,  CP × B → HS2  →  HS1 × HS2 → O
+  // F(O) = 0.5 × NRM[HS1][HS2] = 0.5 × 0.25 = 0.125
+  test('半兄妹交配 F = 0.125',
+    0.125,
+    getF([
+      ind('CP',  null, null), ind('A',  null, null), ind('B',  null, null),
+      ind('HS1', 'CP', 'A'),  ind('HS2', 'CP', 'B'),
+      ind('O',   'HS1','HS2'),
+    ], 'O')
+  );
+
+  // --- 4. いとこ交配 F = 0.0625 ---
+  // GP1×GP2→P1,P2   P1×X→Co1   P2×Y→Co2   Co1×Co2→O
+  // F(O) = 0.5 × NRM[Co1][Co2] = 0.5 × 0.125 = 0.0625
+  test('いとこ交配 F = 0.0625',
+    0.0625,
+    getF([
+      ind('GP1', null,  null), ind('GP2', null,  null),
+      ind('X',   null,  null), ind('Y',   null,  null),
+      ind('P1',  'GP1', 'GP2'), ind('P2',  'GP1', 'GP2'),
+      ind('Co1', 'P1',  'X'),   ind('Co2', 'P2',  'Y'),
+      ind('O',   'Co1', 'Co2'),
+    ], 'O')
+  );
+
+  // --- 5. 叔父 × 姪 交配 F = 0.125 ---
+  // GP1×GP2→U,P   C×D→S   P×S→N   U×N→O
+  // F(O) = 0.5 × NRM[U][N] = 0.5 × 0.25 = 0.125
+  test('叔父 × 姪 交配 F = 0.125',
+    0.125,
+    getF([
+      ind('GP1', null,  null), ind('GP2', null,  null),
+      ind('C',   null,  null), ind('D',   null,  null),
+      ind('U',   'GP1', 'GP2'), ind('P',  'GP1', 'GP2'),
+      ind('S',   'C',   'D'),
+      ind('N',   'P',   'S'),
+      ind('O',   'U',   'N'),
+    ], 'O')
+  );
+
+  // --- 6. 父 × 娘 バッククロス F = 0.25 ---
+  // A×B→F   F×C→Dau   F×Dau→O
+  // F(O) = 0.5 × NRM[F][Dau] = 0.5 × 0.5 = 0.25
+  test('父 × 娘 バッククロス F = 0.25',
+    0.25,
+    getF([
+      ind('A',   null, null), ind('B', null, null), ind('C', null, null),
+      ind('F',   'A',  'B'),
+      ind('Dau', 'F',  'C'),
+      ind('O',   'F',  'Dau'),
+    ], 'O')
+  );
+
+  // --- 7. 二重いとこ交配 F = 0.125 ---
+  // A×B→P1,P2   C×D→P3,P4   P1×P3→Co1   P2×P4→Co2   Co1×Co2→O
+  // F(O) = 0.5 × NRM[Co1][Co2] = 0.5 × 0.25 = 0.125
+  test('二重いとこ交配 F = 0.125',
+    0.125,
+    getF([
+      ind('A',   null, null), ind('B',  null, null),
+      ind('C',   null, null), ind('D',  null, null),
+      ind('P1',  'A',  'B'),  ind('P2', 'A',  'B'),
+      ind('P3',  'C',  'D'),  ind('P4', 'C',  'D'),
+      ind('Co1', 'P1', 'P3'), ind('Co2','P2', 'P4'),
+      ind('O',   'Co1','Co2'),
+    ], 'O')
+  );
+
+  // --- 8. 近交個体の子（F > 0 の親を持つケース）---
+  // 全兄妹交配で生まれた O(F=0.25) を A（非近交）と交配→ O2 の F
+  // F(O2) = 0.5 × NRM[O][A] = 0.5 × (0.5*(NRM[A][S]+NRM[A][D])) = 0 （A は無関係）
+  test('近交個体 × 無関係個体 の子 F = 0',
+    0,
+    getF([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+      ind('A',  null, null),
+      ind('O2', 'O',  'A'),
+    ], 'O2')
+  );
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 2: NRM（数値血縁行列）
+   * ══════════════════════════════════════════════ */
+
+  suite('NRM（数値血縁行列）の検証',
+    '相加的血縁行列の対角・非対角要素が理論値と一致するか確認します。');
+
+  // --- 9. 無関係個体の NRM = 0 ---
+  (function () {
+    App.Store.load([ind('X', null, null), ind('Y', null, null)]);
+    App.NRM.ensureBuilt();
+    test('無関係個体 NRM[X][Y] = 0', 0, App.NRM.get('X', 'Y'));
+  })();
+
+  // --- 10. 対角要素 = 1 + F ---
+  (function () {
+    App.Store.load([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+    ]);
+    App.NRM.ensureBuilt();
+    const F_O   = App.NRM.getF('O');
+    const diag  = App.NRM.get('O', 'O');
+    test('対角要素 NRM[O][O] = 1 + F(O)', 1 + F_O, diag);
+  })();
+
+  // --- 11. 創始者の対角 = 1.0 ---
+  (function () {
+    App.Store.load([ind('A', null, null)]);
+    App.NRM.ensureBuilt();
+    test('創始者 NRM[A][A] = 1.0', 1.0, App.NRM.get('A', 'A'));
+  })();
+
+  // --- 12. 親子間 NRM = 0.5（創始者 × 子）---
+  (function () {
+    App.Store.load([
+      ind('A', null, null), ind('B', null, null),
+      ind('C', 'A', 'B'),
+    ]);
+    App.NRM.ensureBuilt();
+    test('親子間 NRM[A][C] = 0.5', 0.5, App.NRM.get('A', 'C'));
+  })();
+
+  // --- 13. 全兄妹間 NRM = 0.5 ---
+  (function () {
+    App.Store.load([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+    ]);
+    App.NRM.ensureBuilt();
+    test('全兄妹間 NRM[S][D] = 0.5', 0.5, App.NRM.get('S', 'D'));
+  })();
+
+  // --- 14. 半兄妹間 NRM = 0.25 ---
+  (function () {
+    App.Store.load([
+      ind('CP',  null, null), ind('A', null, null), ind('B', null, null),
+      ind('HS1', 'CP', 'A'),  ind('HS2','CP', 'B'),
+    ]);
+    App.NRM.ensureBuilt();
+    test('半兄妹間 NRM[HS1][HS2] = 0.25', 0.25, App.NRM.get('HS1', 'HS2'));
+  })();
+
+  // --- 15. NRM の対称性: NRM[i][j] = NRM[j][i] ---
+  (function () {
+    App.Store.load([
+      ind('A', null, null), ind('B', null, null),
+      ind('C', 'A',  'B'),
+    ]);
+    App.NRM.ensureBuilt();
+    const ac = App.NRM.get('A', 'C');
+    const ca = App.NRM.get('C', 'A');
+    test('NRM の対称性: NRM[A][C] = NRM[C][A]', ac, ca);
+  })();
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 3: ECG（等価完全世代数）
+   * ══════════════════════════════════════════════ */
+
+  suite('ECG（等価完全世代数）の検証',
+    '家系情報の完全性を示す ECG が正しく計算されるか確認します。');
+
+  // --- 16. 両親のみ既知 ECG = 1.0 ---
+  (function () {
+    App.Store.load([
+      ind('A', null, null), ind('B', null, null),
+      ind('C', 'A', 'B'),
+    ]);
+    App.NRM.ensureBuilt();
+    test('両親のみ既知 ECG = 1.0', 1.0, App.Store.get('C').ECG);
+  })();
+
+  // --- 17. 両親 + 全祖父母既知 ECG = 2.0 ---
+  (function () {
+    App.Store.load([
+      ind('GF1', null, null), ind('GM1', null, null),
+      ind('GF2', null, null), ind('GM2', null, null),
+      ind('F',   'GF1','GM1'), ind('M',  'GF2','GM2'),
+      ind('C',   'F',  'M'),
+    ]);
+    App.NRM.ensureBuilt();
+    test('両親 + 全祖父母既知 ECG = 2.0', 2.0, App.Store.get('C').ECG);
+  })();
+
+  // --- 18. 片親のみ既知 ECG = 0.5 ---
+  (function () {
+    App.Store.load([
+      ind('A', null, null),
+      ind('C', 'A', null),
+    ]);
+    App.NRM.ensureBuilt();
+    test('片親のみ既知 ECG = 0.5', 0.5, App.Store.get('C').ECG);
+  })();
+
+  // --- 19. 親なし（創始者）ECG = 0 ---
+  (function () {
+    App.Store.load([ind('A', null, null)]);
+    App.NRM.ensureBuilt();
+    test('創始者（親なし）ECG = 0', 0, App.Store.get('A').ECG);
+  })();
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 4: 交配シミュレーション
+   * ══════════════════════════════════════════════ */
+
+  suite('交配シミュレーション',
+    '産仔の予測 F 値（= 0.5 × NRM[sire][dam]）が正しく計算されるか確認します。');
+
+  // --- 20. 全兄妹の産仔予測 F = 0.25 ---
+  (function () {
+    App.Store.load([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+    ]);
+    test('全兄妹の産仔予測 F = 0.25', 0.25, App.NRM.simulateMating('S', 'D'));
+  })();
+
+  // --- 21. 無関係個体の産仔予測 F = 0 ---
+  (function () {
+    App.Store.load([ind('X', null, null), ind('Y', null, null)]);
+    test('無関係個体の産仔予測 F = 0', 0, App.NRM.simulateMating('X', 'Y'));
+  })();
+
+  // --- 22. いとこの産仔予測 F = 0.0625 ---
+  (function () {
+    App.Store.load([
+      ind('GP1', null,  null), ind('GP2', null,  null),
+      ind('X',   null,  null), ind('Y',   null,  null),
+      ind('P1',  'GP1', 'GP2'), ind('P2', 'GP1', 'GP2'),
+      ind('Co1', 'P1',  'X'),   ind('Co2','P2',  'Y'),
+    ]);
+    test('いとこの産仔予測 F = 0.0625', 0.0625, App.NRM.simulateMating('Co1', 'Co2'));
+  })();
+
+  // --- 23. 片方が null の場合は null を返す ---
+  (function () {
+    App.Store.load([ind('X', null, null)]);
+    const result = App.NRM.simulateMating('X', null);
+    test('引数に null が含まれる場合 simulateMating は null を返す',
+      true, result === null);
+  })();
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 5: 近交パス検出
+   * ══════════════════════════════════════════════ */
+
+  suite('近交パス検出（共通祖先の特定）',
+    'F > 0 の個体について、共通祖先が正しく特定されるか確認します。');
+
+  // --- 24. 全兄妹交配の共通祖先は GS, GD の 2 個体 ---
+  (function () {
+    App.Store.load([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+    ]);
+    App.NRM.ensureBuilt();
+    const { commonAncestors } = App.NRM.findInbreedingPaths('O');
+    test('全兄妹交配: 共通祖先が 2 個体存在する', true, commonAncestors.size === 2);
+    test('全兄妹交配: GS が共通祖先に含まれる',    true, commonAncestors.has('GS'));
+    test('全兄妹交配: GD が共通祖先に含まれる',    true, commonAncestors.has('GD'));
+  })();
+
+  // --- 25. 非近交個体: 共通祖先は 0 ---
+  (function () {
+    App.Store.load([
+      ind('A', null, null), ind('B', null, null),
+      ind('C', 'A', 'B'),
+    ]);
+    App.NRM.ensureBuilt();
+    const { commonAncestors } = App.NRM.findInbreedingPaths('C');
+    test('非近交個体: 共通祖先が 0 個体', true, commonAncestors.size === 0);
+  })();
+
+  // --- 26. いとこ交配: 共通祖先は GP1, GP2 の 2 個体 ---
+  (function () {
+    App.Store.load([
+      ind('GP1', null,  null), ind('GP2', null,  null),
+      ind('X',   null,  null), ind('Y',   null,  null),
+      ind('P1',  'GP1', 'GP2'), ind('P2', 'GP1', 'GP2'),
+      ind('Co1', 'P1',  'X'),   ind('Co2','P2',  'Y'),
+      ind('O',   'Co1', 'Co2'),
+    ]);
+    App.NRM.ensureBuilt();
+    const { commonAncestors } = App.NRM.findInbreedingPaths('O');
+    test('いとこ交配: 共通祖先が 2 個体存在する', true, commonAncestors.size === 2);
+  })();
+
+  /* ══════════════════════════════════════════════
+   * テストスイート 6: エッジケース
+   * ══════════════════════════════════════════════ */
+
+  suite('エッジケース',
+    '特殊な入力値・境界条件での動作を確認します。');
+
+  // --- 27. 個体が 1 頭のみ ---
+  test('個体 1 頭のみ: F = 0',
+    0,
+    getF([ind('Solo', null, null)], 'Solo')
+  );
+
+  // --- 28. 片親のみ既知の個体 F = 0 ---
+  test('片親のみ既知の個体 F = 0',
+    0,
+    getF([ind('A', null, null), ind('C', 'A', null)], 'C')
+  );
+
+  // --- 29. NRM[i][i] >= 1 （F >= 0 の保証） ---
+  (function () {
+    App.Store.load([
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+    ]);
+    App.NRM.ensureBuilt();
+    const allGeq1 = App.Store.getAll().every(i => App.NRM.get(i.id, i.id) >= 1);
+    test('全個体の NRM 対角要素 >= 1（F >= 0 を保証）', true, allGeq1);
+  })();
+
+  // --- 30. invalidate 後に再計算しても同じ結果 ---
+  (function () {
+    const individuals = [
+      ind('GS', null, null), ind('GD', null, null),
+      ind('S',  'GS', 'GD'), ind('D',  'GS', 'GD'),
+      ind('O',  'S',  'D'),
+    ];
+    App.Store.load(individuals);
+    App.NRM.ensureBuilt();
+    const f1 = App.NRM.getF('O');
+    App.NRM.invalidate();
+    App.NRM.ensureBuilt();
+    const f2 = App.NRM.getF('O');
+    test('invalidate → 再計算後も同じ F 値', f1, f2);
+  })();
+
+  /* ──────────────────────────────────────────────
+   * 結果の描画
+   * ────────────────────────────────────────────── */
+
+  let totalPass = 0, totalFail = 0;
+
+  const container = document.getElementById('results');
+
+  for (const s of suites) {
+    const div = document.createElement('div');
+    div.className = 'suite';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'suite-title';
+    titleEl.textContent = s.title;
+    div.appendChild(titleEl);
+
+    if (s.note) {
+      const noteEl = document.createElement('div');
+      noteEl.className = 'pedigree-note';
+      noteEl.textContent = s.note;
+      div.appendChild(noteEl);
+    }
+
+    for (const t of s.tests) {
+      t.pass ? totalPass++ : totalFail++;
+
+      const row = document.createElement('div');
+      row.className = `test-row ${t.pass ? 'pass' : 'fail'}`;
+
+      const fmt = v => {
+        if (typeof v === 'boolean') return String(v);
+        if (typeof v === 'number')  return Number.isInteger(v) ? String(v) : v.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+        return String(v);
+      };
+
+      row.innerHTML = `
+        <span class="icon">${t.pass ? '✓' : '✗'}</span>
+        <span class="name">${t.name}</span>
+        <span class="expected">期待値: ${fmt(t.expected)}</span>
+        <span class="actual">実測値: ${fmt(t.actual)}</span>
+      `;
+      div.appendChild(row);
+    }
+
+    container.appendChild(div);
+  }
+
+  const total = totalPass + totalFail;
+  document.getElementById('pass-count').textContent  = totalPass;
+  document.getElementById('fail-count').textContent  = totalFail;
+  document.getElementById('total-count').textContent = total;
+
+})();
+</script>
+
+<!-- nrm.js の読み込み失敗チェック -->
+<script>
+if (typeof App.NRM === 'undefined') {
+  document.getElementById('load-error').style.display = 'block';
+  document.getElementById('results').innerHTML =
+    '<p style="color:#f85149;padding:1rem;">テストを実行できませんでした。上記エラーを確認してください。</p>';
+}
+</script>
+
+</body>
+</html>
